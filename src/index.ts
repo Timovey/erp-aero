@@ -5,6 +5,7 @@ import bodyParser from 'body-parser';
 import initRoutes from './router';
 import handleError from './middleware/errorMiddleware';
 import AppDataSource from './db';
+import { initCrone } from './helpers/sheduleHelper';
 
 async function start() {
 	try {
@@ -45,6 +46,9 @@ async function start() {
 		app_host === 'localhost'
 			? server.listen(app_port, listen_callback)
 			: server.listen(app_port, app_host, listen_callback);
+
+		//удаление токенов
+		initCrone();
 	} catch (error: any) {
 		console.log('О нет', error);
 	}
