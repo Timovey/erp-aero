@@ -10,7 +10,7 @@
 		"migrate": "@powershell -NoProfile -ExecutionPolicy Unrestricted -Command ./scripts/apply-migration.ps1"
 	},
 	"keywords": [],
-	"author": "",
+	"author": "Timovey",
 	"license": "ISC",
 	"dependencies": {
 		"axios": "^1.5.1",
