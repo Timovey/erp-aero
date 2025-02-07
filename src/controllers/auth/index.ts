@@ -27,6 +27,18 @@ router.post(
 			if (!refreshToken) {
 				throw new UnauthorizeError();
 			}
+			//проверяем токен, если он был занесен при logout
+			const tokenRep = AppDataSource.getRepository(ExpiredToken);
+
+			const existExpiredToken = await tokenRep.findOne({
+				where: {
+					token: refreshToken
+				}
+			});
+			if (existExpiredToken) {
+				throw new UnauthorizeError();
+			}
+
 			jwt.verify(refreshToken, String(privateKey));
 
 			const payload = jwt.decode(refreshToken, { json: true });
