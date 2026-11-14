@@ -6,11 +6,16 @@ import { File } from '../../db/entity/File';
 import { convertToJson, convertToJsonMany } from '../../helpers/convertHelper';
 import { FileViewModel } from './dto/FileViewModel';
 import { BadRequestError, NotFoundError, UnauthorizeError } from '../../common/errors';
-import { getFileExtension, getFilePath, upload } from '../../helpers/fileHelper';
+import {
+	fileExists,
+	getFileExtension,
+	getFilePath,
+	removeStoredFile,
+	resolveStoredPath,
+	upload
+} from '../../helpers/fileHelper';
 import authMiddleware from '../../middleware/authMiddleware';
 import { User } from '../../db/entity/User';
-import { unlink, stat } from 'fs/promises';
-import path from 'path';
 
 const router = Router();
 
@@ -144,6 +149,8 @@ router.delete(
 			}
 
 			await fileRep.delete({ id });
+			//раньше удалялась только запись в БД, а файл оставался на диске навсегда
+			await removeStoredFile(file.path);
 			res.json();
 		} catch (err) {
 			next(err);
@@ -208,11 +215,8 @@ router.put(
 
 			const updatedFile = await fileRep.save(payload);
 
-			const oldPath = path.join(process.cwd(), existFile.path);
-			const isExist = await stat(oldPath);
-			if (isExist) {
-				await unlink(oldPath);
-			}
+			//fs.stat бросал ENOENT, если старого файла уже нет, и клиент получал ошибку при успешном обновлении
+			await removeStoredFile(existFile.path);
 
 			const resPayload = convertToJson(FileViewModel, updatedFile);
 			res.json(resPayload);
@@ -245,8 +249,8 @@ router.get(
 				throw new NotFoundError('Файл не найден');
 			}
 
-			const filePath = path.join(process.cwd(), file.path);
-			const isExist = await stat(filePath);
+			const filePath = resolveStoredPath(file.path);
+			const isExist = await fileExists(file.path);
 			if (!isExist) {
 				throw new NotFoundError('Файл в хранилище не найден');
 			}

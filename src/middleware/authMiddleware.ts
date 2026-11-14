@@ -1,11 +1,10 @@
 import { NextFunction, Request, Response } from 'express';
-import jwt, { TokenExpiredError } from 'jsonwebtoken';
 import { UnauthorizeError } from '../common/errors';
 import AppDataSource from '../db';
 import { User } from '../db/entity/User';
 import { convertToClass } from '../helpers/convertHelper';
 import { UserViewModel } from '../controllers/auth/dto/UserViewModel';
-import { privateKey, publicKey } from '../helpers/authHelper';
+import { privateKey, publicKey, verifyToken } from '../helpers/authHelper';
 import { ExpiredToken } from '../db/entity/ExpiredToken';
 
 export default async function (
@@ -20,11 +19,11 @@ export default async function (
 		//в любом случае должно быть 2 токена
 		if (!accessToken || !refreshToken) throw new UnauthorizeError();
 
-		jwt.verify(accessToken, String(publicKey));
-		jwt.verify(refreshToken, String(privateKey));
+		//подпись, срок жизни и алгоритм (HS256) проверяются явно; payload берём из результата проверки
+		const payload = verifyToken(accessToken, publicKey);
+		verifyToken(refreshToken, privateKey);
 
 		//проставляем пользователя в запрос
-		const payload = jwt.decode(accessToken, { json: true });
 		if (!payload?.id) {
 			throw new UnauthorizeError();
 		}
@@ -46,6 +45,10 @@ export default async function (
 				id: payload.id
 			}
 		});
+		//пользователь мог быть удалён после выдачи токена: иначе дальше req.user.id падал с TypeError
+		if (!existUser) {
+			throw new UnauthorizeError();
+		}
 
 		req.user = convertToClass(UserViewModel, existUser);
 

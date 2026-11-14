@@ -3,15 +3,15 @@ import validationMiddleware from '../../middleware/validationMiddleware';
 import AppDataSource from '../../db';
 import { refreshTokenValidators, signinValidators, signupValidators } from './guard';
 import { User } from '../../db/entity/User';
-import { BadRequestError, ForbiddenError, UnauthorizeError } from '../../common/errors';
-import { encodePsd } from '../../helpers/passwordHelper';
+import { BadRequestError, UnauthorizeError } from '../../common/errors';
+import { hashPassword, verifyPassword } from '../../helpers/passwordHelper';
 import {
 	generateAccessToken,
 	generateTokens,
-	privateKey
+	privateKey,
+	verifyToken
 } from '../../helpers/authHelper';
 import { TokenViewModel } from './dto/TokenViewModel';
-import jwt from 'jsonwebtoken';
 import authMiddleware from '../../middleware/authMiddleware';
 import { ExpiredToken } from '../../db/entity/ExpiredToken';
 
@@ -39,9 +39,13 @@ router.post(
 				throw new UnauthorizeError();
 			}
 
-			jwt.verify(refreshToken, String(privateKey));
-
-			const payload = jwt.decode(refreshToken, { json: true });
+			//подпись, срок жизни и алгоритм проверяются вместе; payload берём из результата проверки
+			let payload;
+			try {
+				payload = verifyToken(refreshToken, privateKey);
+			} catch {
+				throw new UnauthorizeError();
+			}
 			if (!payload?.id) {
 				throw new UnauthorizeError();
 			}
@@ -88,7 +92,7 @@ router.post(
 
 			const payload: User = {
 				id,
-				password: encodePsd(password)
+				password: await hashPassword(password)
 			};
 			const newUser = await userRep.save(payload);
 			const resPayload = generateTokens(newUser);
@@ -109,14 +113,22 @@ router.post(
 			const { id, password } = req.body;
 			const userRep = AppDataSource.getRepository(User);
 
+			//ищем пользователя только по логину, пароль проверяем отдельно за постоянное время
 			const existUser = await userRep.findOne({
 				where: {
-					id,
-					password: encodePsd(password)
+					id
 				}
 			});
-			if (!existUser) {
-				throw new ForbiddenError('Неправильный логин или пароль');
+			const check = existUser
+				? await verifyPassword(password, existUser.password)
+				: { valid: false, needsRehash: false };
+			if (!existUser || !check.valid) {
+				throw new UnauthorizeError('Неправильный логин или пароль');
+			}
+			//пароль в старом формате (HMAC без соли) пересохраняем в новом
+			if (check.needsRehash) {
+				existUser.password = await hashPassword(password);
+				await userRep.save(existUser);
 			}
 
 			const resPayload = generateTokens(existUser);
@@ -134,9 +146,12 @@ router.get('/logout', authMiddleware, async (req: Request, res, next) => {
 		if (!refreshToken) {
 			throw new UnauthorizeError();
 		}
-		jwt.verify(refreshToken, String(privateKey));
-
-		const payload = jwt.decode(refreshToken, { json: true });
+		let payload;
+		try {
+			payload = verifyToken(refreshToken, privateKey);
+		} catch {
+			throw new UnauthorizeError();
+		}
 
 		if (!payload?.id) {
 			throw new UnauthorizeError();
